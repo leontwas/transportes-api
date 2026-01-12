@@ -37,19 +37,22 @@ import { PeriodosDescansoModule } from './periodos-descanso/periodos-descanso.mo
               host: config.get<string>('DB_HOST', 'localhost'),
               port: config.get<number>('DB_PORT', 5432),
               username: config.get<string>('DB_USER', config.get<string>('DB_USERNAME', 'postgres')),
-              password: config.get<string>('DB_PASSWORD', 'leon4475'),
-              database: config.get<string>('DB_NAME', 'tractores_db'),
+              password: config.get<string>('DB_PASSWORD'),
+              database: config.get<string>('DB_NAME', 'postgres'),
             }),
           entities: [Chofer, Tractor, Batea, Viaje, Usuario, PeriodoDescanso],
-          synchronize: config.get<string>('DB_SYNC') === 'true' || !isProduction,
+          synchronize: config.get<string>('DB_SYNC') === 'true',
           logging: !isProduction,
-          ssl: isProduction ? { rejectUnauthorized: false } : false,
+          // SSL requerido para Supabase
+          ssl: databaseUrl || isProduction ? { rejectUnauthorized: false } : false,
           extra: {
-            max: 10,
-            connectionTimeoutMillis: 10000,
-            idleTimeoutMillis: 30000,
+            // Configuración optimizada para Supabase
+            max: 20, // Aumentado para mejor rendimiento
+            connectionTimeoutMillis: 15000,
+            idleTimeoutMillis: 60000,
+            statement_timeout: 30000, // Timeout de queries
           },
-          retryAttempts: 5,
+          retryAttempts: 10,
           retryDelay: 3000,
         };
       },

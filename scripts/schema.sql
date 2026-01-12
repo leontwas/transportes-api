@@ -101,7 +101,6 @@ CREATE TABLE viajes (
 
 -- Initial Admin Data
 INSERT INTO usuarios (email, password, nombre, rol, activo) VALUES ('admin@transporte.com', '$2b$10$7b7R.p9Yn8Y6v6R6P6P6Pe6Y6Y6Y6Y6Y6Y6Y6Y6Y6Y6Y6Y6Y6Y6Y', 'Admin Sistema', 'admin', true);
-ALTER TABLE batea ADD PRIMARY KEY (batea_id);
 ALTER TABLE bateas ADD PRIMARY KEY (batea_id);
 ALTER TABLE tractores ADD PRIMARY KEY (tractor_id);
 ALTER TABLE choferes ADD PRIMARY KEY (id_chofer);
