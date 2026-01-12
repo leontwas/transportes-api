@@ -34,7 +34,7 @@ async function bootstrap() {
     credentials: true,
   });
 
-  const port = 3000;
+  const port = process.env.PORT || 3000;
   const host = '0.0.0.0'; // Escuchar en todas las interfaces
   const localIP = getLocalIP();
 
@@ -44,6 +44,7 @@ async function bootstrap() {
   console.log('  ✅ SERVIDOR INICIADO CORRECTAMENTE');
   console.log('═'.repeat(60));
   console.log('\n📡 El servidor está escuchando en:\n');
+  console.log(`   • Puerto:     ${port}`);
   console.log(`   • Local:      http://localhost:${port}`);
   console.log(`   • Red local:  http://${localIP}:${port}`);
   console.log('\n💡 Usa la IP de red local para conectar desde tu teléfono/tablet');

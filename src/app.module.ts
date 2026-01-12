@@ -24,21 +24,21 @@ import { PeriodosDescansoModule } from './periodos-descanso/periodos-descanso.mo
     ScheduleModule.forRoot(),
     TypeOrmModule.forRoot({
       type: 'postgres',
+      url: process.env.DATABASE_URL, // Render proporciona esta variable
       host: process.env.DB_HOST || 'localhost',
       port: parseInt(process.env.DB_PORT || '5432'),
-      username: process.env.DB_USER || 'postgres',
+      username: process.env.DB_USER || process.env.DB_USERNAME || 'postgres',
       password: process.env.DB_PASSWORD || 'leon4475',
       database: process.env.DB_NAME || 'tractores_db',
       entities: [Chofer, Tractor, Batea, Viaje, Usuario, PeriodoDescanso],
-      synchronize: true,
-      logging: true,
-      ssl: false, // Desactivar SSL para desarrollo local
-      // Configuración adicional para mejorar la estabilidad de conexión
+      synchronize: true, // ¡Cuidado! Usar 'false' en producción real con migraciones
+      logging: process.env.NODE_ENV !== 'production',
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
       extra: {
-        max: 10, // Máximo de conexiones en el pool
-        connectionTimeoutMillis: 10000, // Timeout de conexión
-        idleTimeoutMillis: 30000, // Tiempo antes de cerrar conexiones inactivas
-        keepAlive: true, // Mantener conexiones vivas
+        max: 10,
+        connectionTimeoutMillis: 10000,
+        idleTimeoutMillis: 30000,
+        keepAlive: true,
         keepAliveInitialDelayMillis: 10000,
       },
       retryAttempts: 10,
