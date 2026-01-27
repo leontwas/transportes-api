@@ -1,0 +1,56 @@
+PROMPT PARA CONFIGURAR FRONTEND CON BACKEND EN PRODUCCIÓN
+
+Mi backend NestJS está desplegado en Render y conectado a Supabase. Necesito actualizar mi app de React Native para conectarse a este backend.
+
+INFORMACIÓN DEL BACKEND:
+
+URL Producción: https://transportes-api-bp41.onrender.com
+URL Desarrollo: http://192.168.0.23:3000
+Base path: /api/v1
+
+Credenciales de prueba:
+Email: admin@transporte.com
+Password: admin123
+
+TAREA:
+
+1. Encuentra TODOS los archivos que contengan URLs del API (busca: "localhost", "192.168", "http://", "axios.create", "fetch")
+
+2. Crea o actualiza un archivo de configuración central (ej: src/config/api.js) con:
+   - Detección automática de ambiente (__DEV__)
+   - URL correcta según ambiente
+   - Timeout de 40 segundos (el servidor puede tardar en cold start)
+
+Ejemplo de configuración esperada:
+```javascript
+const isDevelopment = __DEV__;
+
+export const API_BASE_URL = isDevelopment
+  ? 'http://192.168.0.23:3000/api/v1'
+  : 'https://transportes-api-bp41.onrender.com/api/v1';
+
+export const API_TIMEOUT = 40000; // 40 segundos para cold start de Render
+```
+
+3. Actualiza TODOS los servicios/archivos que hacen requests HTTP para usar esta configuración centralizada
+
+4. Agrega manejo de errores para el cold start del servidor (puede tardar ~30 segundos la primera vez)
+
+5. Verifica que funcionen estos endpoints críticos:
+   - POST /api/v1/auth/login
+   - GET /api/v1/choferes
+   - GET /api/v1/choferes/mi-viaje-activo
+   - PATCH /api/v1/choferes/mi-estado
+
+IMPORTANTE:
+- El servidor en Render (plan free) se duerme después de 15 minutos de inactividad
+- La primera request después de dormir tarda ~30 segundos (cold start)
+- Necesito que el app maneje esto con un mensaje de loading apropiado
+
+RESULTADO ESPERADO:
+- App funcionando en desarrollo con IP local
+- App funcionando en producción con servidor de Render
+- Transición automática entre ambientes
+- Manejo de cold start con UX apropiado
+
+Por favor, lista todos los archivos que modificaste y explica los cambios principales.
