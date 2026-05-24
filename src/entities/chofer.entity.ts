@@ -35,6 +35,9 @@ export class Chofer {
   cuil: number | string;
 
   @Column({ nullable: true })
+  transportista: string;
+
+  @Column({ nullable: true })
   tractor_id: number;
 
   @ManyToOne(() => Tractor, {

@@ -475,7 +475,7 @@ export class ChoferesService {
     return { disponible, choferes };
   }
 
-  async crear(data: { nombre_completo: string; estado_chofer?: EstadoChofer; cuil?: number | string }) {
+  async crear(data: { nombre_completo: string; estado_chofer?: EstadoChofer; cuil?: number | string; transportista?: string }) {
     const chofer = this.choferRepository.create(data);
     return this.choferRepository.save(chofer);
   }
@@ -488,6 +488,7 @@ export class ChoferesService {
       batea_id?: number;
       tractor_id?: number;
       cuil?: number | string;
+      transportista?: string;
     },
   ) {
     // Obtener el chofer actual con sus relaciones

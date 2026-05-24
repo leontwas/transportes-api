@@ -144,6 +144,7 @@ export class ChoferesController {
       nombre_completo: string;
       estado_chofer?: EstadoChofer;
       cuil?: number | string;
+      transportista?: string;
     },
   ) {
     return this.choferesService.crear(createChoferDto);
@@ -161,6 +162,7 @@ export class ChoferesController {
       batea_id?: number;
       tractor_id?: number;
       cuil?: number | string;
+      transportista?: string;
     },
   ) {
     return this.choferesService.actualizar(id_chofer, updateChoferDto);
