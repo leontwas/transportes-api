@@ -20,10 +20,10 @@ export class Tractor {
   @PrimaryGeneratedColumn('increment')
   tractor_id: number;
 
-  @Column()
+  @Column({ nullable: true })
   marca: string;
 
-  @Column()
+  @Column({ nullable: true })
   modelo: string;
 
   @Column()
@@ -31,6 +31,9 @@ export class Tractor {
 
   @Column({ nullable: true })
   seguro: string;
+
+  @Column({ nullable: true })
+  transportista: string;
 
   @Column({
     type: 'enum',

@@ -38,10 +38,11 @@ export class TractoresController {
   async crear(
     @Body()
     createTractorDto: {
-      marca: string;
-      modelo: string;
+      marca?: string;
+      modelo?: string;
       patente: string;
       seguro?: string;
+      transportista?: string;
       carga_max_tractor: number;
       estado_tractor?: EstadoTractor;
       chofer_id?: number;
@@ -60,6 +61,7 @@ export class TractoresController {
       modelo?: string;
       patente?: string;
       seguro?: string;
+      transportista?: string;
       carga_max_tractor?: number;
       estado_tractor?: EstadoTractor;
       chofer_id?: number;

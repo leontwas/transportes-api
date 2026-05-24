@@ -38,11 +38,12 @@ export class BateasController {
   async crear(
     @Body()
     createBateaDto: {
-      batea_id: string;
-      marca: string;
-      modelo: string;
+      batea_id?: string;
+      marca?: string;
+      modelo?: string;
       patente: string;
       seguro?: string;
+      transportista?: string;
       carga_max_batea: number;
       estado?: EstadoBatea;
     },
@@ -59,6 +60,7 @@ export class BateasController {
       modelo?: string;
       patente?: string;
       seguro?: string;
+      transportista?: string;
       carga_max_batea?: number;
       estado?: EstadoBatea;
       chofer_id?: number;

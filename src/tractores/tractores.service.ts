@@ -43,10 +43,11 @@ export class TractoresService {
   }
 
   async crear(data: {
-    marca: string;
-    modelo: string;
+    marca?: string;
+    modelo?: string;
     patente: string;
     seguro?: string;
+    transportista?: string;
     carga_max_tractor: number;
     chofer_id?: number;
     batea_id?: number;
@@ -70,6 +71,7 @@ export class TractoresService {
       modelo?: string;
       patente?: string;
       seguro?: string;
+      transportista?: string;
       estado_tractor?: EstadoTractor;
       carga_max_tractor?: number;
       chofer_id?: number;

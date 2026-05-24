@@ -49,10 +49,11 @@ export class BateasService {
   }
 
   async crear(data: {
-    marca: string;
-    modelo: string;
+    marca?: string;
+    modelo?: string;
     patente: string;
     seguro?: string;
+    transportista?: string;
     carga_max_batea: number;
     chofer_id?: number;
     tractor_id?: number;
@@ -76,6 +77,7 @@ export class BateasService {
       modelo?: string;
       patente?: string;
       seguro?: string;
+      transportista?: string;
       estado?: EstadoBatea;
       carga_max_batea?: number;
       chofer_id?: number;

@@ -22,10 +22,10 @@ export class Batea {
   @PrimaryGeneratedColumn('increment')
   batea_id: number;
 
-  @Column()
+  @Column({ nullable: true })
   marca: string;
 
-  @Column()
+  @Column({ nullable: true })
   modelo: string;
 
   @Column()
@@ -33,6 +33,9 @@ export class Batea {
 
   @Column({ nullable: true })
   seguro: string;
+
+  @Column({ nullable: true })
+  transportista: string;
 
   @Column({
     type: 'enum',
