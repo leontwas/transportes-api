@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, Not } from 'typeorm';
 import { Chofer, EstadoChofer } from '../entities/chofer.entity';
@@ -655,11 +655,17 @@ export class ChoferesService {
     // Verificar que existe
     await this.obtenerPorId(id_chofer);
 
-    // Eliminar directamente sin cargar relaciones
-    await this.choferRepository.delete({ id_chofer });
-
-    this.logger.log(`✓ Chofer ${id_chofer} eliminado`);
-    return { mensaje: `Chofer ${id_chofer} eliminado` };
+    try {
+      // Eliminar directamente sin cargar relaciones
+      await this.choferRepository.delete({ id_chofer });
+      this.logger.log(`✓ Chofer ${id_chofer} eliminado`);
+      return { mensaje: `Chofer ${id_chofer} eliminado` };
+    } catch (error: any) {
+      if (error.code === '23503') {
+        throw new ConflictException('No se puede eliminar el chofer porque tiene viajes registrados, o está asignado a un tractor o batea. Desvincúlalo primero antes de eliminarlo.');
+      }
+      throw error;
+    }
   }
 
   async buscarPorApellido(apellido: string) {

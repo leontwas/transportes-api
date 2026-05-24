@@ -140,11 +140,17 @@ export class TractoresService {
     // Verificar que existe
     await this.obtenerPorId(tractor_id);
 
-    // Eliminar directamente sin cargar relaciones
-    await this.tractorRepository.delete({ tractor_id });
-
-    this.logger.log(`✓ Tractor ${tractor_id} eliminado`);
-    return { mensaje: `Tractor ${tractor_id} eliminado` };
+    try {
+      // Eliminar directamente sin cargar relaciones
+      await this.tractorRepository.delete({ tractor_id });
+      this.logger.log(`✓ Tractor ${tractor_id} eliminado`);
+      return { mensaje: `Tractor ${tractor_id} eliminado` };
+    } catch (error: any) {
+      if (error.code === '23503') {
+        throw new ConflictException('No se puede eliminar el tractor porque está actualmente asignado a un chofer, una batea o está registrado en un viaje. Desvincúlalo primero antes de eliminarlo.');
+      }
+      throw error;
+    }
   }
 
   async cambiarEstado(tractor_id: number, estado_tractor: EstadoTractor) {

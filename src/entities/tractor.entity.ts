@@ -42,7 +42,7 @@ export class Tractor {
   })
   estado_tractor: EstadoTractor;
 
-  @Column({ nullable: true })
+  @Column({ type: 'float', nullable: true })
   carga_max_tractor: number; // en toneladas
 
   @Column({ nullable: true })

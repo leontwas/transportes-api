@@ -146,11 +146,17 @@ export class BateasService {
     // Verificar que existe
     await this.obtenerPorId(batea_id);
 
-    // Eliminar directamente sin cargar relaciones
-    await this.bateaRepository.delete({ batea_id });
-
-    this.logger.log(`✓ Batea ${batea_id} eliminada`);
-    return { mensaje: `Batea ${batea_id} eliminada` };
+    try {
+      // Eliminar directamente sin cargar relaciones
+      await this.bateaRepository.delete({ batea_id });
+      this.logger.log(`✓ Batea ${batea_id} eliminada`);
+      return { mensaje: `Batea ${batea_id} eliminada` };
+    } catch (error: any) {
+      if (error.code === '23503') {
+        throw new ConflictException('No se puede eliminar la batea porque está actualmente asignada a un chofer, un tractor o está registrada en un viaje. Desvincúlala primero antes de eliminarla.');
+      }
+      throw error;
+    }
   }
 
   async cambiarEstado(batea_id: number, estado: EstadoBatea) {
