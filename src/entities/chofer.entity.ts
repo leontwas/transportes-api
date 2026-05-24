@@ -31,6 +31,9 @@ export class Chofer {
   @Column()
   nombre_completo: string;
 
+  @Column({ type: 'bigint', nullable: true })
+  cuil: number | string;
+
   @Column({ nullable: true })
   tractor_id: number;
 
