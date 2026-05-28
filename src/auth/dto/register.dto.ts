@@ -7,6 +7,11 @@ export class RegisterDto {
   @MaxLength(100, { message: 'El nombre completo no puede exceder 100 caracteres' })
   nombre_completo: string;
 
+  @IsString({ message: 'El CUIL debe ser un texto' })
+  @MinLength(8, { message: 'El CUIL debe tener al menos 8 caracteres' })
+  cuil: string;
+
+
   @IsEmail({}, { message: 'El email no es válido' })
   @Transform(({ value }) => value.toLowerCase())
   email: string;

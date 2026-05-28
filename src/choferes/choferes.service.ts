@@ -116,7 +116,6 @@ export class ChoferesService {
     const estadosLicencia = [
       EstadoChofer.LICENCIA_ANUAL,
       EstadoChofer.FRANCO,
-      EstadoChofer.EQUIPO_EN_REPARACION,
     ];
 
     const esLicencia = estadosLicencia.includes(estado_chofer);
@@ -151,8 +150,16 @@ export class ChoferesService {
     if (esLicencia) {
       updateData.fecha_inicio_licencia = fecha_inicio_licencia;
       updateData.fecha_fin_licencia = fecha_fin_licencia ?? null;
+    } else if (estado_chofer === EstadoChofer.EQUIPO_EN_REPARACION) {
+      // Registrar el inicio de la reparación automáticamente
+      updateData.fecha_inicio_licencia = new Date();
+      updateData.fecha_fin_licencia = null;
+    } else if (chofer.estado_chofer === EstadoChofer.EQUIPO_EN_REPARACION && estado_chofer === EstadoChofer.DISPONIBLE) {
+      // Registrar el fin de la reparación al volver a DISPONIBLE
+      updateData.fecha_inicio_licencia = chofer.fecha_inicio_licencia; // Mantener el inicio
+      updateData.fecha_fin_licencia = new Date();
     } else {
-      // Limpiar fechas si no es licencia
+      // Limpiar fechas si no es licencia ni reparación
       updateData.fecha_inicio_licencia = null;
       updateData.fecha_fin_licencia = null;
     }
@@ -263,10 +270,47 @@ export class ChoferesService {
         this.logger.log(`✓ Batea ${viajeEnCurso.batea.patente} ahora VACÍA (mantiene asignación al chofer)`);
       }
 
-      // Actualizar el chofer a DISPONIBLE (mantiene tractor y batea asignados)
-      updateData.estado_chofer = EstadoChofer.DISPONIBLE;
+      // No actualizamos automáticamente a DISPONIBLE
+      // El chofer debe cambiar explícitamente a DISPONIBLE u otro estado
+      updateData.estado_chofer = EstadoChofer.ENTREGA_FINALIZADA;
 
-      this.logger.log(`✓ Chofer ${chofer.nombre_completo} ahora DISPONIBLE (mantiene tractor y batea asignados)`);
+      this.logger.log(`✓ Chofer ${chofer.nombre_completo} queda en ENTREGA_FINALIZADA (mantiene tractor y batea asignados)`);
+    }
+
+    // --- Manejo de Equipo en Reparación ---
+    if (estado_chofer === EstadoChofer.EQUIPO_EN_REPARACION) {
+      if (chofer.tractor_id) {
+        await this.choferRepository.manager.query(
+          'UPDATE tractores SET estado_tractor = $1 WHERE tractor_id = $2',
+          ['en_reparacion', chofer.tractor_id]
+        );
+        this.logger.log(`✓ Tractor ${chofer.tractor_id} puesto en reparación`);
+      }
+      if (chofer.batea_id) {
+        await this.choferRepository.manager.query(
+          'UPDATE bateas SET estado = $1 WHERE batea_id = $2',
+          ['en_reparacion', chofer.batea_id]
+        );
+        this.logger.log(`✓ Batea ${chofer.batea_id} puesta en reparación`);
+      }
+    }
+
+    // --- Manejo de Retorno de Reparación ---
+    if (chofer.estado_chofer === EstadoChofer.EQUIPO_EN_REPARACION && estado_chofer === EstadoChofer.DISPONIBLE) {
+      if (chofer.tractor_id) {
+        await this.choferRepository.manager.query(
+          'UPDATE tractores SET estado_tractor = $1 WHERE tractor_id = $2',
+          ['libre', chofer.tractor_id]
+        );
+        this.logger.log(`✓ Tractor ${chofer.tractor_id} restaurado a libre tras reparación`);
+      }
+      if (chofer.batea_id) {
+        await this.choferRepository.manager.query(
+          'UPDATE bateas SET estado = $1 WHERE batea_id = $2',
+          ['vacio', chofer.batea_id]
+        );
+        this.logger.log(`✓ Batea ${chofer.batea_id} restaurada a vacía tras reparación`);
+      }
     }
 
     // Guardar cambios en el chofer
@@ -337,6 +381,17 @@ export class ChoferesService {
         valido: false,
         mensaje: 'No puedes cambiar de VIAJANDO a FRANCO o LICENCIA_ANUAL. Debes completar el viaje primero (pasar por DESCANSANDO → DESCARGANDO → ENTREGA_FINALIZADA → DISPONIBLE).',
       };
+    }
+
+    // Restricción: EQUIPO_EN_REPARACION solo si tiene equipo asignado
+    if (nuevo === EstadoChofer.EQUIPO_EN_REPARACION) {
+      const chofer = await this.choferRepository.findOne({ where: { id_chofer: chofer_id } });
+      if (!chofer?.tractor_id && !chofer?.batea_id) {
+        return {
+          valido: false,
+          mensaje: 'No puedes cambiar a "Equipo en Reparación" porque no tienes ningún tractor ni batea asignados.',
+        };
+      }
     }
 
     // Estados de excepción que pueden aplicarse desde cualquier estado (emergencias)
@@ -410,7 +465,7 @@ export class ChoferesService {
       [EstadoChofer.VIAJANDO]: [EstadoChofer.DESCANSANDO, EstadoChofer.DESCARGANDO], // Puede ir a DESCANSANDO (obligatorio) o DESCARGANDO (si ya descansó)
       [EstadoChofer.DESCANSANDO]: [EstadoChofer.VIAJANDO], // Vuelve a VIAJANDO para cerrar descanso
       [EstadoChofer.DESCARGANDO]: [EstadoChofer.ENTREGA_FINALIZADA, EstadoChofer.VIAJANDO, EstadoChofer.DISPONIBLE], // Puede finalizar entrega o volver
-      [EstadoChofer.ENTREGA_FINALIZADA]: [EstadoChofer.DISPONIBLE], // Automáticamente vuelve a DISPONIBLE
+      [EstadoChofer.ENTREGA_FINALIZADA]: [EstadoChofer.DISPONIBLE], // Debe pasar a DISPONIBLE manualmente
       [EstadoChofer.LICENCIA_ANUAL]: [EstadoChofer.DISPONIBLE],
       [EstadoChofer.FRANCO]: [EstadoChofer.DISPONIBLE],
       [EstadoChofer.EQUIPO_EN_REPARACION]: [EstadoChofer.DISPONIBLE],
@@ -437,7 +492,7 @@ export class ChoferesService {
     } else if (actual === EstadoChofer.DESCARGANDO && nuevo !== EstadoChofer.ENTREGA_FINALIZADA && nuevo !== EstadoChofer.VIAJANDO && nuevo !== EstadoChofer.DISPONIBLE) {
       mensajeError = 'Desde DESCARGANDO debe pasar a ENTREGA_FINALIZADA con las toneladas descargadas, o puede volver a VIAJANDO/DISPONIBLE.';
     } else if (actual === EstadoChofer.ENTREGA_FINALIZADA && nuevo !== EstadoChofer.DISPONIBLE) {
-      mensajeError = 'Desde ENTREGA_FINALIZADA automáticamente pasa a DISPONIBLE.';
+      mensajeError = 'Desde ENTREGA_FINALIZADA debes pasar a DISPONIBLE (o tomar Franco/Licencia).';
     }
 
     return {

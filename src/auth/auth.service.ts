@@ -69,7 +69,7 @@ export class AuthService {
     }
 
     async register(registerDto: RegisterDto) {
-        const { email, password, nombre_completo } = registerDto;
+        const { email, password, nombre_completo, cuil } = registerDto;
 
         // Verificar si el email ya está registrado
         const existingUser = await this.usuarioRepository.findOne({
@@ -80,14 +80,30 @@ export class AuthService {
             throw new ConflictException('El email ya está registrado');
         }
 
-        // Crear el chofer con estado inactivo
-        const nuevoChofer = this.choferRepository.create({
-            nombre_completo,
-            estado_chofer: EstadoChofer.INACTIVO,
-            razon_estado: 'Pendiente de asignación',
+        // Buscar si ya existe un chofer con ese cuil
+        let chofer = await this.choferRepository.findOne({
+            where: { cuil },
         });
 
-        await this.choferRepository.save(nuevoChofer);
+        if (chofer) {
+            // Verificar si el chofer ya tiene un usuario asociado
+            const usuarioExistenteParaChofer = await this.usuarioRepository.findOne({
+                where: { chofer_id: chofer.id_chofer },
+            });
+
+            if (usuarioExistenteParaChofer) {
+                throw new ConflictException('Este chofer ya tiene un usuario registrado');
+            }
+        } else {
+            // Crear el chofer con estado inactivo si no existe
+            chofer = this.choferRepository.create({
+                nombre_completo,
+                cuil,
+                estado_chofer: EstadoChofer.INACTIVO,
+                razon_estado: 'Pendiente de asignación',
+            });
+            await this.choferRepository.save(chofer);
+        }
 
         // Crear el usuario con rol chofer y vincularlo al chofer
         const nuevoUsuario = this.usuarioRepository.create({
@@ -95,7 +111,7 @@ export class AuthService {
             password,
             nombre: nombre_completo,
             rol: RolUsuario.CHOFER,
-            chofer_id: nuevoChofer.id_chofer,
+            chofer_id: chofer.id_chofer,
             activo: true,
         });
 

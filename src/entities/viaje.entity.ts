@@ -48,8 +48,11 @@ export class Viaje {
     @Column({ nullable: true })
     numero_remito: string;
 
-    @Column({ type: 'float', nullable: true })
+    @Column({ type: 'float', nullable: false, default: 0 })
     toneladas_cargadas: number;
+
+    @Column({ type: 'boolean', default: false })
+    viaje_modificado: boolean;
 
     @Column({ type: 'float', nullable: true })
     toneladas_descargadas: number;

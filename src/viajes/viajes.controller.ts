@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Delete, ParseIntPipe, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Delete, ParseIntPipe, UseGuards, Request } from '@nestjs/common';
 import { ViajesService } from './viajes.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -43,9 +43,38 @@ export class ViajesController {
             destino: string;
             fecha_salida: Date;
             numero_remito?: string;
-            toneladas_cargadas?: number;
+            toneladas_cargadas: number;
         },
     ) {
         return this.viajesService.crear(body);
+    }
+
+    @Patch(':id_viaje')
+    @Roles(RolUsuario.ADMIN)
+    async actualizar(
+        @Param('id_viaje', ParseIntPipe) id_viaje: number,
+        @Body()
+        body: {
+            chofer_id?: number;
+            tractor_id?: number;
+            batea_id?: number;
+            origen?: string;
+            destino?: string;
+            fecha_salida?: Date;
+            numero_remito?: string;
+            toneladas_cargadas?: number;
+        },
+        @Request() req
+    ) {
+        return this.viajesService.actualizar(id_viaje, body, req.user);
+    }
+
+    @Patch(':id_viaje/marcar-notificacion-leida')
+    @Roles(RolUsuario.ADMIN, RolUsuario.CHOFER)
+    async marcarNotificacionLeida(
+        @Param('id_viaje', ParseIntPipe) id_viaje: number,
+        @Request() req
+    ) {
+        return this.viajesService.marcarNotificacionLeida(id_viaje, req.user);
     }
 }

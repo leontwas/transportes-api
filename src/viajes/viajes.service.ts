@@ -61,7 +61,7 @@ export class ViajesService {
         destino: string;
         fecha_salida: Date;
         numero_remito?: string;
-        toneladas_cargadas?: number;
+        toneladas_cargadas: number;
     }) {
         // Usar transacción
         return this.dataSource.transaction(async (manager) => {
@@ -153,17 +153,15 @@ export class ViajesService {
                 { estado: EstadoBatea.CARGADO },
             );
 
-            // 3.5 Validar Carga Máxima
-            if (data.toneladas_cargadas) {
-                const capacidadTractor = tractor.carga_max_tractor || 0;
-                const capacidadBatea = batea.carga_max_batea || 0;
-                const limiteCarga = Math.min(capacidadTractor, capacidadBatea);
+            // 3.5 Validar Carga Máxima (toneladas_cargadas ahora es obligatorio)
+            const capacidadTractor = tractor.carga_max_tractor || 0;
+            const capacidadBatea = batea.carga_max_batea || 0;
+            const limiteCarga = Math.min(capacidadTractor, capacidadBatea);
 
-                if (data.toneladas_cargadas > limiteCarga) {
-                    throw new BadRequestException(
-                        `Exceso de carga: La carga solicitada (${data.toneladas_cargadas}t) excede el límite operativo de ${limiteCarga}t (Tractor: ${capacidadTractor}t, Batea: ${capacidadBatea}t)`,
-                    );
-                }
+            if (data.toneladas_cargadas > limiteCarga) {
+                throw new BadRequestException(
+                    `Exceso de carga: La carga solicitada (${data.toneladas_cargadas}t) excede el límite operativo de ${limiteCarga}t (Tractor: ${capacidadTractor}t, Batea: ${capacidadBatea}t)`,
+                );
             }
 
             return nuevoViaje;
@@ -289,5 +287,93 @@ export class ViajesService {
             // Re-lanzar el error para que NestJS lo maneje
             throw error;
         }
+    }
+
+    async actualizar(id_viaje: number, data: Partial<Viaje>, user?: any) {
+        return this.dataSource.transaction(async (manager) => {
+            const viaje = await manager.findOne(Viaje, {
+                where: { id_viaje },
+                relations: ['chofer', 'tractor', 'batea'],
+            });
+
+            if (!viaje) {
+                throw new NotFoundException(`Viaje ${id_viaje} no encontrado`);
+            }
+
+            // Validar cambio de Tractor
+            if (data.tractor_id && data.tractor_id !== viaje.tractor_id) {
+                const tractorNuevo = await manager.findOne(Tractor, { where: { tractor_id: data.tractor_id } });
+                if (!tractorNuevo) throw new NotFoundException('Tractor nuevo no encontrado');
+                if (tractorNuevo.estado_tractor === EstadoTractor.EN_REPARACION) {
+                    throw new BadRequestException(`Tractor ${tractorNuevo.patente} en reparación`);
+                }
+                // Liberar viejo
+                await manager.update(Tractor, { tractor_id: viaje.tractor_id }, { estado_tractor: EstadoTractor.LIBRE });
+                // Ocupar nuevo
+                await manager.update(Tractor, { tractor_id: tractorNuevo.tractor_id }, { estado_tractor: EstadoTractor.OCUPADO });
+            }
+
+            // Validar cambio de Batea
+            if (data.batea_id && data.batea_id !== viaje.batea_id) {
+                const bateaNueva = await manager.findOne(Batea, { where: { batea_id: data.batea_id } });
+                if (!bateaNueva) throw new NotFoundException('Batea nueva no encontrada');
+                if (bateaNueva.estado === EstadoBatea.EN_REPARACION) {
+                    throw new BadRequestException(`Batea ${bateaNueva.patente} en reparación`);
+                }
+                // Liberar vieja
+                await manager.update(Batea, { batea_id: viaje.batea_id }, { estado: EstadoBatea.VACIO });
+                // Ocupar nueva
+                await manager.update(Batea, { batea_id: bateaNueva.batea_id }, { estado: EstadoBatea.CARGADO });
+            }
+
+            // Validar cambio de Chofer
+            if (data.chofer_id && data.chofer_id !== viaje.chofer_id) {
+                const choferNuevo = await manager.findOne(Chofer, { where: { id_chofer: data.chofer_id } });
+                if (!choferNuevo) throw new NotFoundException('Chofer nuevo no encontrado');
+                if (choferNuevo.estado_chofer !== EstadoChofer.DISPONIBLE) {
+                    throw new BadRequestException(`Chofer ${choferNuevo.nombre_completo} no está disponible`);
+                }
+                // Liberar viejo
+                const estadosViaje = [EstadoChofer.CARGANDO, EstadoChofer.VIAJANDO, EstadoChofer.DESCANSANDO, EstadoChofer.DESCARGANDO];
+                if (estadosViaje.includes(viaje.chofer.estado_chofer)) {
+                    await manager.update(Chofer, { id_chofer: viaje.chofer_id }, { estado_chofer: EstadoChofer.DISPONIBLE });
+                }
+            }
+
+            // Validar toneladas
+            if (data.toneladas_cargadas) {
+                const tractorActual = data.tractor_id ? await manager.findOne(Tractor, {where: {tractor_id: data.tractor_id}}) : viaje.tractor;
+                const bateaActual = data.batea_id ? await manager.findOne(Batea, {where: {batea_id: data.batea_id}}) : viaje.batea;
+                
+                const capacidadTractor = tractorActual?.carga_max_tractor || 0;
+                const capacidadBatea = bateaActual?.carga_max_batea || 0;
+                const limiteCarga = Math.min(capacidadTractor, capacidadBatea);
+
+                if (data.toneladas_cargadas > limiteCarga) {
+                    throw new BadRequestException(
+                        `Exceso de carga: La carga (${data.toneladas_cargadas}t) excede límite de ${limiteCarga}t`,
+                    );
+                }
+            }
+
+            Object.assign(viaje, data);
+            viaje.viaje_modificado = true; // Activar notificación para el chofer
+
+            await manager.save(viaje);
+
+            this.logger.log(`[EDIT] Admin editó viaje ID=${id_viaje}. Notificación activada.`);
+            return viaje;
+        });
+    }
+
+    async marcarNotificacionLeida(id_viaje: number, user?: any) {
+        const viaje = await this.viajeRepository.findOne({ where: { id_viaje } });
+        if (!viaje) {
+            throw new NotFoundException(`Viaje ${id_viaje} no encontrado`);
+        }
+        
+        viaje.viaje_modificado = false;
+        await this.viajeRepository.save(viaje);
+        return { success: true };
     }
 }
