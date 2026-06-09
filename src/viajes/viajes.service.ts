@@ -532,6 +532,11 @@ export class ViajesService {
             throw new BadRequestException('No puedes rechazar un viaje que no te pertenece.');
         }
 
+        const chofer = viaje.chofer;
+        if (chofer && chofer.estado_chofer !== EstadoChofer.DISPONIBLE) {
+            throw new BadRequestException(`No puedes rechazar el viaje porque ya has cambiado tu estado a ${chofer.estado_chofer}.`);
+        }
+
         try {
             return await this.dataSource.transaction(async (manager) => {
                 const chofer = viaje.chofer;
