@@ -10,25 +10,24 @@ import { RolUsuario } from '../entities/usuario.entity';
 export class ViajesController {
     constructor(private readonly viajesService: ViajesService) { }
 
-    @Delete(':id_viaje')
+    @Get('notificaciones')
     @Roles(RolUsuario.ADMIN)
-    async eliminar(
-        @Param('id_viaje', ParseIntPipe) id_viaje: number,
-        @Request() req
+    async obtenerNotificaciones() {
+        return this.viajesService.obtenerNotificaciones();
+    }
+
+    @Patch('notificaciones/:id/leer')
+    @Roles(RolUsuario.ADMIN)
+    async marcarNotificacionLeidaById(
+        @Param('id', ParseIntPipe) id: number
     ) {
-        return this.viajesService.eliminar(id_viaje, req.user);
+        return this.viajesService.marcarNotificacionLeidaById(id);
     }
 
     @Get()
     @Roles(RolUsuario.ADMIN, RolUsuario.CHOFER)
     async obtenerTodos(@Request() req) {
         return this.viajesService.obtenerTodos(req.user);
-    }
-
-    @Get(':id_viaje')
-    @Roles(RolUsuario.ADMIN, RolUsuario.CHOFER)
-    async obtenerPorId(@Param('id_viaje', ParseIntPipe) id_viaje: number, @Request() req) {
-        return this.viajesService.obtenerPorId(id_viaje, req.user);
     }
 
     @Post()
@@ -47,6 +46,39 @@ export class ViajesController {
         },
     ) {
         return this.viajesService.crear(body);
+    }
+
+    @Get(':id_viaje')
+    @Roles(RolUsuario.ADMIN, RolUsuario.CHOFER)
+    async obtenerPorId(@Param('id_viaje', ParseIntPipe) id_viaje: number, @Request() req) {
+        return this.viajesService.obtenerPorId(id_viaje, req.user);
+    }
+
+    @Delete(':id_viaje')
+    @Roles(RolUsuario.ADMIN)
+    async eliminar(
+        @Param('id_viaje', ParseIntPipe) id_viaje: number,
+        @Request() req
+    ) {
+        return this.viajesService.eliminar(id_viaje, req.user);
+    }
+
+    @Post(':id_viaje/rechazar')
+    @Roles(RolUsuario.CHOFER)
+    async rechazar(
+        @Param('id_viaje', ParseIntPipe) id_viaje: number,
+        @Request() req
+    ) {
+        return this.viajesService.rechazar(id_viaje, req.user);
+    }
+
+    @Patch(':id_viaje/anular')
+    @Roles(RolUsuario.ADMIN)
+    async anular(
+        @Param('id_viaje', ParseIntPipe) id_viaje: number,
+        @Request() req
+    ) {
+        return this.viajesService.anular(id_viaje, req.user);
     }
 
     @Patch(':id_viaje')
