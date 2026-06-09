@@ -11,6 +11,8 @@ import { Viaje, EstadoViaje } from '../entities/viaje.entity';
 import { Chofer, EstadoChofer } from '../entities/chofer.entity';
 import { Tractor, EstadoTractor } from '../entities/tractor.entity';
 import { Batea, EstadoBatea } from '../entities/batea.entity';
+import { Notificacion } from '../entities/notificacion.entity';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class ViajesService {
@@ -19,7 +21,10 @@ export class ViajesService {
     constructor(
         @InjectRepository(Viaje)
         private viajeRepository: Repository<Viaje>,
+        @InjectRepository(Notificacion)
+        private notificacionRepository: Repository<Notificacion>,
         private dataSource: DataSource,
+        private mailService: MailService,
     ) { }
 
     async obtenerTodos(user?: any) {
@@ -289,6 +294,140 @@ export class ViajesService {
         }
     }
 
+    async anular(id_viaje: number, user?: any) {
+        this.logger.log(`[ANULAR] Iniciando anulación de viaje ID=${id_viaje} por usuario ${user?.nombre || 'Sistema'}`);
+
+        // 1. Verificar que el viaje existe
+        const viaje = await this.viajeRepository.findOne({
+            where: { id_viaje },
+            relations: ['chofer', 'tractor', 'batea'],
+        });
+
+        if (!viaje) {
+            this.logger.warn(`[ANULAR] Viaje ID=${id_viaje} no encontrado`);
+            throw new NotFoundException(`El viaje con ID ${id_viaje} no existe`);
+        }
+
+        // 2. Verificar que el viaje no esté ya anulado
+        if (viaje.estado_viaje === EstadoViaje.ANULADO) {
+            this.logger.warn(`[ANULAR] Viaje ID=${id_viaje} ya fue anulado previamente`);
+            throw new BadRequestException(
+                `El viaje con ID ${id_viaje} ya fue anulado previamente y no es válido para anulación.`
+            );
+        }
+
+        // 3. Verificar que el viaje no esté finalizado
+        if (viaje.estado_viaje === EstadoViaje.FINALIZADO) {
+            this.logger.warn(`[ANULAR] Viaje ID=${id_viaje} ya está finalizado`);
+            throw new BadRequestException(
+                `El viaje con ID ${id_viaje} ya está finalizado y no puede ser anulado.`
+            );
+        }
+
+        // 4. Definir estados de chofer relacionados con viajes
+        const estadosRelacionadosConViaje = [
+            EstadoChofer.CARGANDO,
+            EstadoChofer.VIAJANDO,
+            EstadoChofer.DESCANSANDO,
+            EstadoChofer.DESCARGANDO,
+        ];
+
+        // 5. Ejecutar anulación en transacción atómica
+        try {
+            return await this.dataSource.transaction(async (manager) => {
+                const chofer = viaje.chofer;
+                const tractor = viaje.tractor;
+                const batea = viaje.batea;
+
+                // 6. Liberar Tractor
+                if (tractor) {
+                    await manager.update(
+                        Tractor,
+                        { tractor_id: viaje.tractor_id },
+                        { estado_tractor: EstadoTractor.LIBRE },
+                    );
+                    this.logger.log(`✓ Tractor ${tractor.patente} liberado (estado: LIBRE)`);
+                }
+
+                // 7. Liberar Batea
+                if (batea) {
+                    await manager.update(
+                        Batea,
+                        { batea_id: viaje.batea_id },
+                        { estado: EstadoBatea.VACIO },
+                    );
+                    this.logger.log(`✓ Batea ${batea.patente} liberada (estado: VACIO)`);
+                }
+
+                // 8. Actualizar estado del Chofer si es necesario
+                if (chofer) {
+                    if (estadosRelacionadosConViaje.includes(chofer.estado_chofer)) {
+                        await manager.update(
+                            Chofer,
+                            { id_chofer: viaje.chofer_id },
+                            { estado_chofer: EstadoChofer.DISPONIBLE },
+                        );
+                        this.logger.log(
+                            `✓ Chofer ${chofer.nombre_completo} liberado (estado: DISPONIBLE, anterior: ${chofer.estado_chofer})`
+                        );
+                    } else {
+                        this.logger.log(
+                            `ℹ️  Chofer ${chofer.nombre_completo} mantiene su estado: ${chofer.estado_chofer}`
+                        );
+                    }
+                }
+
+                // 9. Marcar el viaje como ANULADO (no se elimina de la BD)
+                await manager.update(
+                    Viaje,
+                    { id_viaje },
+                    { estado_viaje: EstadoViaje.ANULADO },
+                );
+
+                // 10. Log de auditoría
+                const adminInfo = user ? `${user.nombre} (ID: ${user.usuario_id})` : 'Sistema';
+                this.logger.log(
+                    `[AUDITORÍA] Admin ${adminInfo} anuló viaje ID=${id_viaje} - ` +
+                    `Recursos liberados: Chofer=${chofer?.nombre_completo || 'N/A'}, ` +
+                    `Tractor=${tractor?.patente || 'N/A'}, Batea=${batea?.patente || 'N/A'} - ` +
+                    `Timestamp: ${new Date().toISOString()}`
+                );
+
+                // 11. Retornar respuesta exitosa
+                return {
+                    message: 'El viaje fue anulado y los recursos han sido liberados correctamente.',
+                    viaje_id: id_viaje,
+                    recursos_liberados: {
+                        chofer: chofer ? {
+                            id: chofer.id_chofer,
+                            nombre: chofer.nombre_completo,
+                            nuevo_estado: estadosRelacionadosConViaje.includes(chofer.estado_chofer)
+                                ? EstadoChofer.DISPONIBLE
+                                : chofer.estado_chofer,
+                        } : null,
+                        tractor: tractor ? {
+                            id: tractor.tractor_id,
+                            patente: tractor.patente,
+                            nuevo_estado: EstadoTractor.LIBRE,
+                        } : null,
+                        batea: batea ? {
+                            id: batea.batea_id,
+                            patente: batea.patente,
+                            nuevo_estado: EstadoBatea.VACIO,
+                        } : null,
+                    },
+                };
+            });
+        } catch (error) {
+            // Re-throw NestJS exceptions (NotFoundException, BadRequestException) as-is
+            if (error instanceof NotFoundException || error instanceof BadRequestException) {
+                throw error;
+            }
+            this.logger.error(`[ANULAR] Error al anular viaje ID=${id_viaje}: ${error.message}`, error.stack);
+            throw error;
+        }
+    }
+
     async actualizar(id_viaje: number, data: Partial<Viaje>, user?: any) {
         return this.dataSource.transaction(async (manager) => {
             const viaje = await manager.findOne(Viaje, {
@@ -376,4 +515,104 @@ export class ViajesService {
         await this.viajeRepository.save(viaje);
         return { success: true };
     }
+
+    async rechazar(id_viaje: number, user: any) {
+        this.logger.log(`[RECHAZAR] Chofer ${user.nombre} (ID Chofer: ${user.chofer_id}) intenta rechazar viaje ID=${id_viaje}`);
+
+        const viaje = await this.viajeRepository.findOne({
+            where: { id_viaje },
+            relations: ['chofer', 'tractor', 'batea'],
+        });
+
+        if (!viaje) {
+            throw new NotFoundException(`El viaje con ID ${id_viaje} no existe`);
+        }
+
+        if (viaje.chofer_id !== user.chofer_id) {
+            throw new BadRequestException('No puedes rechazar un viaje que no te pertenece.');
+        }
+
+        try {
+            return await this.dataSource.transaction(async (manager) => {
+                const chofer = viaje.chofer;
+                const tractor = viaje.tractor;
+                const batea = viaje.batea;
+
+                const choferNombre = chofer ? chofer.nombre_completo : `Chofer ID ${viaje.chofer_id}`;
+                const mensaje = `El chofer ${choferNombre} rechazó el viaje asignado con origen ${viaje.origen} y destino ${viaje.destino} (${viaje.toneladas_cargadas}t).`;
+                
+                const notificacion = manager.create(Notificacion, {
+                    mensaje,
+                    leida: false,
+                });
+                await manager.save(notificacion);
+                this.logger.log(`✓ Notificación de rechazo guardada en BD: "${mensaje}"`);
+
+                const adminEmail = 'admin@transporte.com';
+                await this.mailService.sendTripRejectedEmail(adminEmail, choferNombre, {
+                    origen: viaje.origen,
+                    destino: viaje.destino,
+                    toneladas_cargadas: viaje.toneladas_cargadas,
+                }).catch(err => {
+                    this.logger.error(`Error al enviar email de rechazo de viaje: ${err.message}`);
+                });
+
+                if (tractor) {
+                    await manager.update(
+                        Tractor,
+                        { tractor_id: viaje.tractor_id },
+                        { estado_tractor: EstadoTractor.LIBRE },
+                    );
+                    this.logger.log(`✓ Tractor ${tractor.patente} liberado (estado: LIBRE)`);
+                }
+
+                if (batea) {
+                    await manager.update(
+                        Batea,
+                        { batea_id: viaje.batea_id },
+                        { estado: EstadoBatea.VACIO },
+                    );
+                    this.logger.log(`✓ Batea ${batea.patente} liberada (estado: VACIO)`);
+                }
+
+                if (chofer) {
+                    await manager.update(
+                        Chofer,
+                        { id_chofer: viaje.chofer_id },
+                        { estado_chofer: EstadoChofer.DISPONIBLE },
+                    );
+                    this.logger.log(`✓ Chofer ${choferNombre} liberado (estado: DISPONIBLE)`);
+                }
+
+                await manager.delete(Viaje, { id_viaje });
+                this.logger.log(`✓ Viaje ID=${id_viaje} eliminado de la base de datos`);
+
+                return {
+                    success: true,
+                    message: 'Viaje rechazado y recursos liberados con éxito.',
+                };
+            });
+        } catch (error) {
+            this.logger.error(`[RECHAZAR] Error al rechazar viaje ID=${id_viaje}: ${error.message}`, error.stack);
+            throw error;
+        }
+    }
+
+    async obtenerNotificaciones() {
+        return this.notificacionRepository.find({
+            where: { leida: false },
+            order: { creado_en: 'DESC' },
+        });
+    }
+
+    async marcarNotificacionLeidaById(id: number) {
+        const notif = await this.notificacionRepository.findOne({ where: { id } });
+        if (!notif) {
+            throw new NotFoundException(`Notificación ${id} no encontrada`);
+        }
+        notif.leida = true;
+        await this.notificacionRepository.save(notif);
+        return { success: true };
+    }
 }
+

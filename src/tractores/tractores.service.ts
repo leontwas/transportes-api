@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import { Tractor, EstadoTractor } from '../entities/tractor.entity';
+import { EstadoChofer } from '../entities/chofer.entity';
 
 @Injectable()
 export class TractoresService {
@@ -49,9 +50,12 @@ export class TractoresService {
     seguro?: string;
     transportista?: string;
     carga_max_tractor: number;
-    chofer_id?: number;
-    batea_id?: number;
+    chofer_id?: number | string;
+    batea_id?: number | string;
   }) {
+    const choferId = data.chofer_id ? Number(data.chofer_id) : null;
+    const bateaId = data.batea_id ? Number(data.batea_id) : null;
+
     const existente = await this.tractorRepository.findOne({
       where: { patente: data.patente }, // Cambio validación ID por Patente, ya que ID es auto
     });
@@ -60,8 +64,37 @@ export class TractoresService {
       throw new BadRequestException(`Patente ${data.patente} ya existe`);
     }
 
-    const tractor = this.tractorRepository.create(data);
-    return this.tractorRepository.save(tractor);
+    // Usar transacción para guardar de forma bidireccional
+    return this.tractorRepository.manager.transaction(async (manager) => {
+      const dataToSave = { ...data };
+      if (choferId !== null) dataToSave.chofer_id = choferId;
+      if (bateaId !== null) dataToSave.batea_id = bateaId;
+
+      const tractor = manager.create(Tractor, dataToSave as any);
+      const savedTractor = await manager.save(Tractor, tractor);
+      const tractorId = savedTractor.tractor_id;
+
+      if (choferId) {
+        // Actualizar chofer
+        await manager.query(
+          'UPDATE choferes SET tractor_id = $1 WHERE id_chofer = $2',
+          [tractorId, choferId]
+        );
+        // Si tiene chofer asignado, marcar estado_tractor como OCUPADO
+        await manager.update(Tractor, { tractor_id: tractorId }, { estado_tractor: EstadoTractor.OCUPADO });
+        savedTractor.estado_tractor = EstadoTractor.OCUPADO;
+      }
+
+      if (bateaId) {
+        // Actualizar batea
+        await manager.query(
+          'UPDATE bateas SET tractor_id = $1 WHERE batea_id = $2',
+          [tractorId, bateaId]
+        );
+      }
+
+      return savedTractor;
+    });
   }
 
   async actualizar(
@@ -74,11 +107,41 @@ export class TractoresService {
       transportista?: string;
       estado_tractor?: EstadoTractor;
       carga_max_tractor?: number;
-      chofer_id?: number;
-      batea_id?: number;
+      chofer_id?: number | string;
+      batea_id?: number | string;
     },
   ) {
+    if (data.chofer_id !== undefined && data.chofer_id !== null) {
+      data.chofer_id = Number(data.chofer_id);
+    }
+    if (data.batea_id !== undefined && data.batea_id !== null) {
+      data.batea_id = Number(data.batea_id);
+    }
+
     await this.obtenerPorId(tractor_id);
+
+    // Si se está intentando cambiar chofer o batea, validar que el chofer actual no esté activo
+    if (data.chofer_id !== undefined || data.batea_id !== undefined) {
+      const tractor = await this.obtenerPorId(tractor_id);
+      if (tractor.chofer_id) {
+        const chofer = await this.tractorRepository.manager.query(
+          'SELECT id_chofer, estado_chofer FROM choferes WHERE id_chofer = $1',
+          [tractor.chofer_id],
+        );
+        if (chofer && chofer.length > 0) {
+          const estadosActivos = [
+            EstadoChofer.CARGANDO,
+            EstadoChofer.VIAJANDO,
+            EstadoChofer.DESCANSANDO,
+            EstadoChofer.DESCARGANDO,
+            EstadoChofer.ENTREGA_FINALIZADA,
+          ];
+          if (estadosActivos.includes(chofer[0].estado_chofer)) {
+            throw new BadRequestException('No es posible modificar los recursos de un chofer con jornada activa.');
+          }
+        }
+      }
+    }
 
     // Si se está asignando un chofer, usar el método con validaciones
     if (data.chofer_id !== undefined) {
@@ -87,16 +150,24 @@ export class TractoresService {
 
       // Actualizar campos básicos primero si los hay
       if (Object.keys(data).length > 0) {
-        await this.tractorRepository.update({ tractor_id }, data);
+        await this.tractorRepository.update({ tractor_id }, data as any);
       }
 
-      // Si chofer_id es null, limpiar la asignación
+      // Si chofer_id es null, limpiar la asignación bidireccionalmente
       if (choferId === null) {
-        await this.tractorRepository.query(
-          'UPDATE tractores SET chofer_id = NULL WHERE tractor_id = $1',
-          [tractor_id],
-        );
-        this.logger.log(`✓ Chofer removido de tractor ${tractor_id}`);
+        await this.tractorRepository.manager.transaction(async (manager) => {
+          // Limpiar chofer_id del tractor y poner LIBRE
+          await manager.query(
+            'UPDATE tractores SET chofer_id = NULL, estado_tractor = $1 WHERE tractor_id = $2',
+            ['libre', tractor_id],
+          );
+          // Limpiar tractor_id del chofer
+          await manager.query(
+            'UPDATE choferes SET tractor_id = NULL WHERE tractor_id = $1',
+            [tractor_id],
+          );
+        });
+        this.logger.log(`✓ Chofer removido de tractor ${tractor_id} → estado LIBRE`);
       } else {
         // Usar el método con validaciones
         return this.asignarChofer(tractor_id, choferId);
@@ -112,16 +183,24 @@ export class TractoresService {
 
       // Actualizar campos básicos primero si los hay
       if (Object.keys(data).length > 0) {
-        await this.tractorRepository.update({ tractor_id }, data);
+        await this.tractorRepository.update({ tractor_id }, data as any);
       }
 
-      // Si batea_id es null, limpiar la asignación
+      // Si batea_id es null, limpiar la asignación bidireccionalmente
       if (bateaId === null) {
-        await this.tractorRepository.query(
-          'UPDATE tractores SET batea_id = NULL WHERE tractor_id = $1',
-          [tractor_id],
-        );
-        this.logger.log(`✓ Batea removida de tractor ${tractor_id}`);
+        await this.tractorRepository.manager.transaction(async (manager) => {
+          // Limpiar batea_id del tractor
+          await manager.query(
+            'UPDATE tractores SET batea_id = NULL WHERE tractor_id = $1',
+            [tractor_id],
+          );
+          // Limpiar tractor_id de la batea
+          await manager.query(
+            'UPDATE bateas SET tractor_id = NULL WHERE tractor_id = $1',
+            [tractor_id],
+          );
+        });
+        this.logger.log(`✓ Batea removida de tractor ${tractor_id} y batea actualizada`);
       } else {
         // Usar el método con validaciones
         return this.asignarBatea(tractor_id, bateaId);
@@ -131,7 +210,7 @@ export class TractoresService {
     }
 
     // Si no hay asignaciones, actualizar normalmente
-    await this.tractorRepository.update({ tractor_id }, data);
+    await this.tractorRepository.update({ tractor_id }, data as any);
     this.logger.log(`✓ Tractor ${tractor_id} actualizado`);
     return this.obtenerPorId(tractor_id);
   }
@@ -168,6 +247,27 @@ export class TractoresService {
   async asignarChofer(tractor_id: number, chofer_id: number) {
     const tractor = await this.obtenerPorId(tractor_id);
 
+    const estadosActivos = [
+      EstadoChofer.CARGANDO,
+      EstadoChofer.VIAJANDO,
+      EstadoChofer.DESCANSANDO,
+      EstadoChofer.DESCARGANDO,
+      EstadoChofer.ENTREGA_FINALIZADA,
+    ];
+
+    // Validar si el chofer actual del tractor está activo
+    if (tractor.chofer_id) {
+      const choferActual = await this.tractorRepository.manager.query(
+        'SELECT id_chofer, estado_chofer FROM choferes WHERE id_chofer = $1',
+        [tractor.chofer_id],
+      );
+      if (choferActual && choferActual.length > 0) {
+        if (estadosActivos.includes(choferActual[0].estado_chofer)) {
+          throw new BadRequestException('No es posible modificar los recursos de un chofer con jornada activa.');
+        }
+      }
+    }
+
     // 1. Verificar si el chofer existe
     const chofer = await this.tractorRepository.manager.query(
       'SELECT id_chofer, nombre_completo, tractor_id, estado_chofer FROM choferes WHERE id_chofer = $1',
@@ -179,6 +279,11 @@ export class TractoresService {
     }
 
     const choferData = chofer[0];
+
+    // Validar si el nuevo chofer está activo
+    if (estadosActivos.includes(choferData.estado_chofer)) {
+      throw new BadRequestException('No es posible modificar los recursos de un chofer con jornada activa.');
+    }
 
     // 2. Verificar que el chofer NO tenga otro tractor asignado
     if (choferData.tractor_id && choferData.tractor_id !== tractor_id) {
@@ -212,25 +317,41 @@ export class TractoresService {
         [tractor_id, chofer_id],
       );
 
-      // Actualizar tractor
-      await manager.update(Tractor, { tractor_id }, { chofer_id });
-
-      // Actualizar estado si es necesario
-      if (tractor.estado_tractor === EstadoTractor.LIBRE) {
-        await manager.update(Tractor, { tractor_id }, { estado_tractor: EstadoTractor.OCUPADO });
-      }
+      // Actualizar tractor: asignar chofer y marcar OCUPADO siempre
+      await manager.update(Tractor, { tractor_id }, { chofer_id, estado_tractor: EstadoTractor.OCUPADO });
     });
 
-    this.logger.log(`✓ Tractor ${tractor.patente} asignado a chofer ${choferData.nombre_completo}`);
+    this.logger.log(`✓ Tractor ${tractor.patente} asignado a chofer ${choferData.nombre_completo} → estado OCUPADO`);
     return this.obtenerPorId(tractor_id);
   }
 
   async asignarBatea(tractor_id: number, batea_id: number) {
     const tractor = await this.obtenerPorId(tractor_id);
 
+    const estadosActivos = [
+      EstadoChofer.CARGANDO,
+      EstadoChofer.VIAJANDO,
+      EstadoChofer.DESCANSANDO,
+      EstadoChofer.DESCARGANDO,
+      EstadoChofer.ENTREGA_FINALIZADA,
+    ];
+
+    // Validar si el chofer actual del tractor está activo
+    if (tractor.chofer_id) {
+      const choferActual = await this.tractorRepository.manager.query(
+        'SELECT id_chofer, estado_chofer FROM choferes WHERE id_chofer = $1',
+        [tractor.chofer_id],
+      );
+      if (choferActual && choferActual.length > 0) {
+        if (estadosActivos.includes(choferActual[0].estado_chofer)) {
+          throw new BadRequestException('No es posible modificar los recursos de un chofer con jornada activa.');
+        }
+      }
+    }
+
     // 1. Verificar si la batea existe
     const batea = await this.tractorRepository.manager.query(
-      'SELECT batea_id, patente, tractor_id, estado FROM bateas WHERE batea_id = $1',
+      'SELECT batea_id, patente, tractor_id, estado, chofer_id FROM bateas WHERE batea_id = $1',
       [batea_id],
     );
 
@@ -239,6 +360,19 @@ export class TractoresService {
     }
 
     const bateaData = batea[0];
+
+    // Validar si el chofer actual de la batea está activo
+    if (bateaData.chofer_id) {
+      const choferActualBatea = await this.tractorRepository.manager.query(
+        'SELECT id_chofer, estado_chofer FROM choferes WHERE id_chofer = $1',
+        [bateaData.chofer_id],
+      );
+      if (choferActualBatea && choferActualBatea.length > 0) {
+        if (estadosActivos.includes(choferActualBatea[0].estado_chofer)) {
+          throw new BadRequestException('No es posible modificar los recursos de un chofer con jornada activa.');
+        }
+      }
+    }
 
     // 2. Verificar que el tractor NO tenga otra batea asignada
     if (tractor.batea_id && tractor.batea_id !== batea_id) {
@@ -266,14 +400,24 @@ export class TractoresService {
 
     // 4. Asignar batea al tractor (Transacción)
     await this.tractorRepository.manager.transaction(async (manager) => {
-      // Actualizar batea
+      // Actualizar batea: asignar tractor_id
       await manager.query(
         'UPDATE bateas SET tractor_id = $1 WHERE batea_id = $2',
         [tractor_id, batea_id],
       );
 
-      // Actualizar tractor
+      // Actualizar tractor: asignar batea_id
       await manager.update(Tractor, { tractor_id }, { batea_id });
+
+      // Si la batea ya tiene chofer asignado Y el tractor ya tiene chofer asignado → marcar batea OCUPADO
+      const bateaActualizada = await manager.query(
+        'SELECT chofer_id FROM bateas WHERE batea_id = $1', [batea_id]
+      );
+      if (bateaActualizada[0]?.chofer_id && tractor.chofer_id) {
+        await manager.query(
+          'UPDATE bateas SET estado = $1 WHERE batea_id = $2', ['ocupado', batea_id]
+        );
+      }
     });
 
     this.logger.log(`✓ Tractor ${tractor.patente} asignado a batea ${bateaData.patente}`);

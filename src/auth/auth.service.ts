@@ -81,9 +81,12 @@ export class AuthService {
         }
 
         // Buscar si ya existe un chofer con ese cuil
-        let chofer = await this.choferRepository.findOne({
-            where: { cuil },
-        });
+        let chofer: Chofer | null = null;
+        if (cuil) {
+            chofer = await this.choferRepository.findOne({
+                where: { cuil },
+            });
+        }
 
         if (chofer) {
             // Verificar si el chofer ya tiene un usuario asociado
@@ -94,6 +97,10 @@ export class AuthService {
             if (usuarioExistenteParaChofer) {
                 throw new ConflictException('Este chofer ya tiene un usuario registrado');
             }
+
+            // Actualizar el nombre completo del chofer con el provisto en el registro
+            chofer.nombre_completo = nombre_completo;
+            await this.choferRepository.save(chofer);
         } else {
             // Crear el chofer con estado inactivo si no existe
             chofer = this.choferRepository.create({

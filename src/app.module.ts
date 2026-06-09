@@ -8,6 +8,7 @@ import { Batea } from './entities/batea.entity';
 import { Viaje } from './entities/viaje.entity';
 import { Usuario } from './entities/usuario.entity';
 import { PeriodoDescanso } from './entities/periodo-descanso.entity';
+import { Notificacion } from './entities/notificacion.entity';
 import { ChoferesModule } from './choferes/choferes.module';
 import { TractoresModule } from './tractores/tractores.module';
 import { BateasModule } from './bateas/bateas.module';
@@ -40,7 +41,7 @@ import { PeriodosDescansoModule } from './periodos-descanso/periodos-descanso.mo
               password: config.get<string>('DB_PASSWORD'),
               database: config.get<string>('DB_NAME', 'postgres'),
             }),
-          entities: [Chofer, Tractor, Batea, Viaje, Usuario, PeriodoDescanso],
+          entities: [Chofer, Tractor, Batea, Viaje, Usuario, PeriodoDescanso, Notificacion],
           synchronize: config.get<string>('DB_SYNC') === 'true',
           logging: !isProduction,
           // SSL requerido para Supabase

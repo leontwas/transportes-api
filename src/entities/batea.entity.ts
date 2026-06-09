@@ -15,6 +15,7 @@ export enum EstadoBatea {
   CARGADO = 'cargado',
   VACIO = 'vacio',
   EN_REPARACION = 'en_reparacion',
+  OCUPADO = 'ocupado',
 }
 
 @Entity('bateas')

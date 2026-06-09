@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength, MaxLength } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, IsNumberString, Length, IsOptional } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class RegisterDto {
@@ -7,8 +7,9 @@ export class RegisterDto {
   @MaxLength(100, { message: 'El nombre completo no puede exceder 100 caracteres' })
   nombre_completo: string;
 
-  @IsString({ message: 'El CUIL debe ser un texto' })
-  @MinLength(8, { message: 'El CUIL debe tener al menos 8 caracteres' })
+  @IsOptional()
+  @IsNumberString({}, { message: 'El CUIL debe contener solo números' })
+  @Length(11, 11, { message: 'El CUIL debe tener exactamente 11 dígitos' })
   cuil: string;
 
 

@@ -6,9 +6,14 @@ import { Viaje } from '../entities/viaje.entity';
 import { Chofer } from '../entities/chofer.entity';
 import { Tractor } from '../entities/tractor.entity';
 import { Batea } from '../entities/batea.entity';
+import { Notificacion } from '../entities/notificacion.entity';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([Viaje, Chofer, Tractor, Batea])],
+    imports: [
+        TypeOrmModule.forFeature([Viaje, Chofer, Tractor, Batea, Notificacion]),
+        MailModule,
+    ],
     controllers: [ViajesController],
     providers: [ViajesService],
 })

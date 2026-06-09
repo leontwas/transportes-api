@@ -19,6 +19,7 @@ export enum EstadoViaje {
     DESCARGANDO = 'descargando',
     FINALIZADO = 'finalizado',
     EN_RECLAMO = 'en_reclamo',
+    ANULADO = 'anulado',
 }
 
 @Entity('viajes')

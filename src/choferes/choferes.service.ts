@@ -256,25 +256,24 @@ export class ChoferesService {
       if (viajeEnCurso.tractor) {
         await this.choferRepository.manager.query(
           'UPDATE tractores SET estado_tractor = $1 WHERE tractor_id = $2',
-          ['libre', viajeEnCurso.tractor_id]
+          ['ocupado', viajeEnCurso.tractor_id]
         );
-        this.logger.log(`✓ Tractor ${viajeEnCurso.tractor.patente} ahora LIBRE (mantiene asignación al chofer)`);
+        this.logger.log(`✓ Tractor ${viajeEnCurso.tractor.patente} ahora OCUPADO (mantiene asignación al chofer)`);
       }
 
       // Actualizar estado de la Batea (mantiene asignación al chofer)
       if (viajeEnCurso.batea) {
         await this.choferRepository.manager.query(
           'UPDATE bateas SET estado = $1 WHERE batea_id = $2',
-          ['vacio', viajeEnCurso.batea_id]
+          ['ocupado', viajeEnCurso.batea_id]
         );
-        this.logger.log(`✓ Batea ${viajeEnCurso.batea.patente} ahora VACÍA (mantiene asignación al chofer)`);
+        this.logger.log(`✓ Batea ${viajeEnCurso.batea.patente} ahora OCUPADA (mantiene asignación al chofer)`);
       }
 
-      // No actualizamos automáticamente a DISPONIBLE
-      // El chofer debe cambiar explícitamente a DISPONIBLE u otro estado
-      updateData.estado_chofer = EstadoChofer.ENTREGA_FINALIZADA;
+      // Actualizamos automáticamente a DISPONIBLE tras la entrega finalizada
+      updateData.estado_chofer = EstadoChofer.DISPONIBLE;
 
-      this.logger.log(`✓ Chofer ${chofer.nombre_completo} queda en ENTREGA_FINALIZADA (mantiene tractor y batea asignados)`);
+      this.logger.log(`✓ Chofer ${chofer.nombre_completo} pasa automáticamente a DISPONIBLE (mantiene tractor y batea asignados)`);
     }
 
     // --- Manejo de Equipo en Reparación ---
@@ -300,16 +299,36 @@ export class ChoferesService {
       if (chofer.tractor_id) {
         await this.choferRepository.manager.query(
           'UPDATE tractores SET estado_tractor = $1 WHERE tractor_id = $2',
-          ['libre', chofer.tractor_id]
+          ['ocupado', chofer.tractor_id]
         );
-        this.logger.log(`✓ Tractor ${chofer.tractor_id} restaurado a libre tras reparación`);
+        this.logger.log(`✓ Tractor ${chofer.tractor_id} restaurado a ocupado tras reparación`);
       }
       if (chofer.batea_id) {
         await this.choferRepository.manager.query(
           'UPDATE bateas SET estado = $1 WHERE batea_id = $2',
+          ['ocupado', chofer.batea_id]
+        );
+        this.logger.log(`✓ Batea ${chofer.batea_id} restaurada a ocupada tras reparación`);
+      }
+    }
+
+    // --- Manejo de Licencia Anual (Vacaciones) ---
+    if (estado_chofer === EstadoChofer.LICENCIA_ANUAL) {
+      if (chofer.tractor_id) {
+        await this.choferRepository.manager.query(
+          'UPDATE tractores SET chofer_id = NULL, estado_tractor = $1 WHERE tractor_id = $2',
+          ['libre', chofer.tractor_id]
+        );
+        this.logger.log(`✓ Tractor ${chofer.tractor_id} desasignado y marcado LIBRE por licencia anual`);
+        updateData.tractor_id = null;
+      }
+      if (chofer.batea_id) {
+        await this.choferRepository.manager.query(
+          'UPDATE bateas SET chofer_id = NULL, estado = $1 WHERE batea_id = $2',
           ['vacio', chofer.batea_id]
         );
-        this.logger.log(`✓ Batea ${chofer.batea_id} restaurada a vacía tras reparación`);
+        this.logger.log(`✓ Batea ${chofer.batea_id} desasignada y marcada VACIA por licencia anual`);
+        updateData.batea_id = null;
       }
     }
 
@@ -530,7 +549,7 @@ export class ChoferesService {
     return { disponible, choferes };
   }
 
-  async crear(data: { nombre_completo: string; estado_chofer?: EstadoChofer; cuil?: number | string; transportista?: string }) {
+  async crear(data: { nombre_completo: string; estado_chofer?: EstadoChofer; cuil?: string; transportista?: string }) {
     const chofer = this.choferRepository.create(data);
     return this.choferRepository.save(chofer);
   }
@@ -542,12 +561,27 @@ export class ChoferesService {
       estado_chofer?: EstadoChofer;
       batea_id?: number;
       tractor_id?: number;
-      cuil?: number | string;
+      cuil?: string;
       transportista?: string;
     },
   ) {
     // Obtener el chofer actual con sus relaciones
     const choferActual = await this.obtenerPorId(id_chofer);
+
+    const estadosActivos = [
+      EstadoChofer.CARGANDO,
+      EstadoChofer.VIAJANDO,
+      EstadoChofer.DESCANSANDO,
+      EstadoChofer.DESCARGANDO,
+      EstadoChofer.ENTREGA_FINALIZADA,
+    ];
+    if (estadosActivos.includes(choferActual.estado_chofer)) {
+      const tractorCambiado = 'tractor_id' in data && data.tractor_id !== choferActual.tractor_id;
+      const bateaCambiada = 'batea_id' in data && data.batea_id !== choferActual.batea_id;
+      if (tractorCambiado || bateaCambiada) {
+        throw new BadRequestException('No es posible modificar los recursos de un chofer con jornada activa.');
+      }
+    }
 
     // Remover validación de estado para permitir asignaciones flexibles desde el frontend
     // El frontend maneja la lógica de negocio de cuándo permitir asignaciones
@@ -570,8 +604,8 @@ export class ChoferesService {
               `[Chofer ${id_chofer}] Limpiando batea anterior: ${bateaAnteriorId}`,
             );
             await transactionalEntityManager.query(
-              'UPDATE bateas SET chofer_id = NULL WHERE batea_id = $1',
-              [bateaAnteriorId],
+              'UPDATE bateas SET chofer_id = NULL, estado = $1 WHERE batea_id = $2',
+              ['vacio', bateaAnteriorId],
             );
           }
 
@@ -617,8 +651,8 @@ export class ChoferesService {
               `[Batea ${nuevaBateaId}] Asignando chofer: ${id_chofer}`,
             );
             await transactionalEntityManager.query(
-              'UPDATE bateas SET chofer_id = $1 WHERE batea_id = $2',
-              [id_chofer, nuevaBateaId],
+              'UPDATE bateas SET chofer_id = $1, estado = $2 WHERE batea_id = $3',
+              [id_chofer, 'ocupado', nuevaBateaId],
             );
           }
         }
@@ -638,8 +672,8 @@ export class ChoferesService {
               `[Chofer ${id_chofer}] Limpiando tractor anterior: ${tractorAnteriorId}`,
             );
             await transactionalEntityManager.query(
-              'UPDATE tractores SET chofer_id = NULL WHERE tractor_id = $1',
-              [tractorAnteriorId],
+              'UPDATE tractores SET chofer_id = NULL, estado_tractor = $1 WHERE tractor_id = $2',
+              ['libre', tractorAnteriorId],
             );
           }
 
@@ -687,8 +721,8 @@ export class ChoferesService {
               `[Tractor ${nuevoTractorId}] Asignando chofer: ${id_chofer}`,
             );
             await transactionalEntityManager.query(
-              'UPDATE tractores SET chofer_id = $1 WHERE tractor_id = $2',
-              [id_chofer, nuevoTractorId],
+              'UPDATE tractores SET chofer_id = $1, estado_tractor = $2 WHERE tractor_id = $3',
+              [id_chofer, 'ocupado', nuevoTractorId],
             );
           }
         }

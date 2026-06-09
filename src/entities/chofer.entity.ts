@@ -31,8 +31,8 @@ export class Chofer {
   @Column()
   nombre_completo: string;
 
-  @Column({ type: 'bigint', nullable: true })
-  cuil: number | string;
+  @Column({ type: 'varchar', length: 11, nullable: true, unique: true })
+  cuil: string;
 
   @Column({ nullable: true })
   transportista: string;
