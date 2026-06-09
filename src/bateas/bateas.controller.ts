@@ -45,7 +45,6 @@ export class BateasController {
       seguro?: string;
       transportista?: string;
       carga_max_batea: number;
-      estado?: EstadoBatea;
       chofer_id?: number;
       tractor_id?: number;
     },
